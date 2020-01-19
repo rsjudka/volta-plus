@@ -2,6 +2,7 @@ from collections import namedtuple
 from datetime import datetime
 import json
 import logging
+import os.path
 import pytz
 import shutil
 from threading import Lock
@@ -138,15 +139,16 @@ class VoltaMeter:
 
 class VoltaNetwork:
     API_URL = 'https://api.voltaapi.com/v1/public-sites'
+    DATA_FILE = 'data.json'
 
-    def __init__(self, init_file=None):
+    def __init__(self):
         self.meters = dict()
 
         self.tf = TimezoneFinder(in_memory=True)
 
         self.init_data = None
-        if init_file is not None:
-            with open(init_file) as f:
+        if os.path.isfile(self.DATA_FILE):
+            with open(self.DATA_FILE) as f:
                 self.init_data = json.load(f)
 
     def show_meter_stats(self, oem_id):
@@ -167,9 +169,9 @@ class VoltaNetwork:
                 else:
                     log_warning("'stations' array not found", charger)
 
-        with open('data.json', 'w') as f:
+        with open(self.DATA_FILE, 'w') as f:
             json.dump({oem_id:meter.serialize() for oem_id, meter in self.meters.items()}, f)
-        shutil.copy('data.json', 'data.json.bak')
+        shutil.copy(self.DATA_FILE, self.DATA_FILE + '.bak')
 
     def parse_charger(self, station):
         if 'meters' in station:

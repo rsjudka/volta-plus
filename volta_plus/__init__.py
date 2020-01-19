@@ -7,12 +7,12 @@ import time
 from .models import VoltaNetwork
 
 
-def create_app(init_file=None):
+def create_app():
     logging.basicConfig(filename='volta_plus.log')
 
     app = flask.Flask(__name__)
 
-    volta_network = VoltaNetwork(init_file)
+    volta_network = VoltaNetwork()
     def update_volta_network():
         while True:
             try:
