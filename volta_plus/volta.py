@@ -1,6 +1,5 @@
 from collections import namedtuple
 from datetime import datetime
-from geopy import geocoders
 import json
 import logging
 import pytz
