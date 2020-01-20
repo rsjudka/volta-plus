@@ -7,9 +7,9 @@ import time
 from .models import VoltaNetwork
 
 
-def create_app():
-    logging.basicConfig(filename='volta_plus.log')
+logging.basicConfig(filename='volta_plus.log')
 
+def create_app():
     app = flask.Flask(__name__)
 
     volta_network = VoltaNetwork()
