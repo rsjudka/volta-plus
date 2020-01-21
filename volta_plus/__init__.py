@@ -17,10 +17,10 @@ def create_app():
         while True:
             try:
                 volta_network.update()
-                time.sleep(15)
+                time.sleep(1)
             except Exception as e:
                 logging.exception(e)
-                time.sleep(30)
+                time.sleep(5)
     Thread(target=update_volta_network, daemon=True).start()
 
     @app.route('/', methods=['GET'])
