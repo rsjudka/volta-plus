@@ -1,3 +1,4 @@
+from datetime import datetime
 import flask
 import logging
 import sys
@@ -17,10 +18,11 @@ def create_app():
         while True:
             try:
                 volta_network.update()
-                time.sleep(1)
+                print("[{}] sleeping for 15 sec".format(datetime.now()))
+                time.sleep(15)
             except Exception as e:
                 logging.exception(e)
-                time.sleep(5)
+                time.sleep(30)
     Thread(target=update_volta_network, daemon=True).start()
 
     @app.route('/', methods=['GET'])
