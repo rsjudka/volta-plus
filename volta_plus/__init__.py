@@ -8,8 +8,6 @@ import time
 from .models import VoltaNetwork
 
 
-logging.basicConfig(filename='volta_plus.log')
-
 def create_app():
     app = flask.Flask(__name__)
 
@@ -18,7 +16,6 @@ def create_app():
         while True:
             try:
                 volta_network.update()
-                print("[{}] sleeping for 15 sec".format(datetime.now()))
                 time.sleep(15)
             except Exception as e:
                 logging.exception(e)
