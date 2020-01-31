@@ -1,17 +1,18 @@
 from collections import namedtuple
 from datetime import datetime
+from google.cloud import firestore
 import json
 import logging
 import os.path
 import pytz
-import shutil
-from threading import Lock
 from timezonefinder import TimezoneFinder
 from urllib.request import urlopen
 
 
 ChargingStatus = namedtuple('ChargingStatus', 'state availability')
 Location = namedtuple('Location', 'city state zip tz')
+
+db_cnt = 0
 
 def log_warning(msg, data):
     logging.warning("--------------------------------------------------------------")
@@ -26,6 +27,34 @@ class VoltaMeter:
     in_use_idle = {ChargingStatus('chargestopped', 'in use')}
     unknown = {ChargingStatus('old data', 'unknown'), ChargingStatus('bad data', 'unknown')}
 
+    class InUseStats:
+        def __init__(self, start=None, cnt=0, avg=0):
+            self.start = start
+            self.cnt = cnt
+            self.avg = avg
+
+        def update_start(self, utc_time):
+            self.start = utc_time
+
+        def update_avg(self, utc_time):
+            self.cnt += 1
+
+            duration = (utc_time - self.start).total_seconds()
+            self.avg += (duration - self.avg) / self.cnt
+
+            self.start = None
+        
+        @property
+        def is_charging(self):
+            return self.start is not None
+
+        def serialize(self):
+            return {
+                'start': self.start,
+                'cnt': self.cnt,
+                'avg': self.avg
+            }
+
     def __init__(self, name, status, location):
         self.name = name
         self.status = status
@@ -33,109 +62,97 @@ class VoltaMeter:
 
         self.charging_status = None
 
-        self.current_charge_start = None
-        self.charge_cnt = 0
-        self.avg_charge_duration = 0
+        self.in_use_charging_stats = self.InUseStats()
+        self.in_use_idle_stats = self.InUseStats()
 
-        self.in_use_idle_start = None
-        self.in_use_idle_cnt = 0
-        self.in_use_idle_avg_duration = 0
+        self.last_weekly_usage_update = (0, 0)
+        self.weekly_usage = [[0] * 144 for i in range(7)]
 
-        self.last_weekly_usage_check = self.utc_to_local_time(datetime.utcnow())
-        self.weekly_usage = [0] * 10080
-        self.weekly_usage_cnt = 0
-
-        self.mutex = Lock()
-
+    # this is only for data from text file
     def set_stats(self, stats):
-        self.charge_cnt = stats['charge_cnt']
-        self.avg_charge_duration = stats['avg_charge_duration']
-        self.in_use_idle_cnt = stats['in_use_idle_cnt']
-        self.in_use_idle_avg_duration = stats['in_use_idle_avg_duration']
-        self.weekly_usage = stats['weekly_usage']
-        self.weekly_usage_cnt = stats['weekly_usage_cnt']
+        self.in_use_charging_stats.cnt = stats['charge_cnt']
+        self.in_use_charging_stats.avg = stats['avg_charge_duration']
+        self.in_use_idle_stats.cnt = stats['in_use_idle_cnt']
+        self.in_use_idle_stats.avg = stats['in_use_idle_avg_duration']
+        for i in range(7):
+            self.weekly_usage[i] = [max(stats['weekly_usage'][z*1440:(z*1440)+1440][y:y+10]) for y in range(0,1440,10)]
 
     def update(self, new_charging_status):
-        with self.mutex:
-            if self.charging_status is None and new_charging_status not in self.available:
-                return
+        updated = False
 
-            utc_time = datetime.utcnow()
-            local_time = self.utc_to_local_time(utc_time)
+        if self.charging_status is None and new_charging_status not in self.available:
+            return updated
+        
+        utc_time = datetime.utcnow()
 
-            if not self.is_in_use(self.charging_status) and self.is_in_use(new_charging_status):
-                self.current_charge_start = utc_time
-            elif self.is_in_use(self.charging_status) and not self.is_in_use(new_charging_status):
-                if self.current_charge_start is not None:
-                    self.update_charge_duration_avg(utc_time)
-                else:
-                    log_warning("charge start time is None when it shouldn't be", self.dump())
+        updated |= self.update_in_use_charging(new_charging_status, utc_time)
+        updated |= self.update_in_use_idle(new_charging_status, utc_time)
 
-            if self.charging_status not in self.in_use_idle and new_charging_status in self.in_use_idle:
-                self.in_use_idle_start = utc_time
-            elif self.charging_status in self.in_use_idle and new_charging_status not in self.in_use_idle:
-                if self.in_use_idle_start is not None:
-                    self.update_in_use_duration_avg(utc_time)
-                else:
-                    log_warning("idle start time is None when it shouldn't be", self.dump())
+        self.update_weekly_usage(new_charging_status, self.utc_to_local_time(utc_time))
 
-            if self.is_in_use(new_charging_status) and local_time.second < self.last_weekly_usage_check.second:
-                self.weekly_usage[(local_time.weekday() * 1440) + (local_time.hour * 60) + local_time.minute] += 1
+        self.charging_status = new_charging_status
 
-            if local_time.weekday() < self.last_weekly_usage_check.weekday():
-                self.weekly_usage_cnt += 1
+        return updated
 
-            self.last_weekly_usage_check = local_time
-            self.charging_status = new_charging_status
+    def update_in_use_charging(self, new_charging_status, utc_time):
+        if not self.status_in_use(self.charging_status) and self.status_in_use(new_charging_status):
+            self.in_use_charging_stats.update_start(utc_time)
+            return True
+        elif self.status_in_use(self.charging_status) and not self.status_in_use(new_charging_status):
+            if self.in_use_charging_stats.is_charging:
+                self.in_use_charging_stats.update_avg(utc_time)
+                return True
+            else:
+                log_warning("charge start time is None when it shouldn't be", self.dump())
+        
+        return False
 
-    def update_charge_duration_avg(self, curr_time):
-        duration = (curr_time - self.current_charge_start).total_seconds()
-        self.charge_cnt += 1
-        self.avg_charge_duration += (duration - self.avg_charge_duration) / self.charge_cnt
+    def update_in_use_idle(self, new_charging_status, utc_time):
+        if self.charging_status not in self.in_use_idle and new_charging_status in self.in_use_idle:
+            self.in_use_idle_stats.update_start(utc_time)
+            return True
+        elif self.charging_status in self.in_use_idle and new_charging_status not in self.in_use_idle:
+            if self.in_use_idle_stats.is_charging:
+                self.in_use_idle_stats.update_avg(utc_time)
+                return True
+            else:
+                log_warning("idle start time is None when it shouldn't be", self.dump())
 
-        self.current_charge_start = None
+        return False
 
-    def update_in_use_duration_avg(self, curr_time):
-        duration = (curr_time - self.in_use_idle_start).total_seconds()
-        self.in_use_idle_cnt += 1
-        self.in_use_idle_avg_duration += (duration - self.in_use_idle_avg_duration) / self.in_use_idle_cnt
+    def update_weekly_usage(self, new_charging_status, local_time):
+        weekly_usage_update = (local_time.weekday(), ((local_time.hour * 60) + local_time.minute) // 10)
+        if self.status_in_use(new_charging_status) and weekly_usage_update != self.last_weekly_usage_update:
+            self.weekly_usage[weekly_usage_update[0]][weekly_usage_update[1]] += 1
+            self.last_weekly_usage_update = weekly_usage_update
 
-        self.in_use_idle_start = None
-
-    def is_in_use(self, charging_status):
+    def status_in_use(self, charging_status):
         return charging_status in self.in_use_charging or charging_status in self.in_use_idle
 
     def utc_to_local_time(self, utc_time):
         return self.location.tz.fromutc(utc_time) if self.location.tz is not None else utc_time
 
     def serialize(self):
-        with self.mutex:
-            return {
-                'charge_cnt': self.charge_cnt,
-                'avg_charge_duration': self.avg_charge_duration,
-                'in_use_idle_cnt': self.in_use_idle_cnt,
-                'in_use_idle_avg_duration': self.in_use_idle_avg_duration,
-                'weekly_usage': self.weekly_usage,
-                'weekly_usage_cnt': self.weekly_usage_cnt
-            }
+        return {
+            'in_use_charging_stats': self.in_use_charging_stats.serialize(),
+            'in_use_idle_stats': self.in_use_idle_stats.serialize(),
+            'weekly_usage': self.weekly_usage
+        }
 
     def dump(self):
-        with self.mutex:
-            return {
-                'name': self.name,
-                'status': self.status,
-                'location': self.location,
-                'charging_status': self.charging_status,
-                'current_charge_start': self.utc_to_local_time(self.current_charge_start),
-                'charge_cnt': self.charge_cnt,
-                'avg_charge_duration': self.avg_charge_duration,
-                'in_use_idle_start': self.utc_to_local_time(self.in_use_idle_start),
-                'in_use_idle_cnt': self.in_use_idle_cnt,
-                'in_use_idle_avg_duration': self.in_use_idle_avg_duration,
-                'last_weekly_usage_check': self.last_weekly_usage_check,
-                'weekly_usage': self.weekly_usage,
-                'weekly_usage_cnt': self.weekly_usage_cnt
-            }
+        return {
+            'name': self.name,
+            'status': self.status,
+            'location': self.location,
+            'charging_status': self.charging_status,
+            'in_use_charging_stats': self.in_use_charging_stats.serialize(),
+            'in_use_idle_stats': self.in_use_idle_stats.serialize(),
+            'last_weekly_usage_update': self.last_weekly_usage_update,
+            'weekly_usage': self.weekly_usage,
+        }
+
+class VoltaStation:
+    pass
 
 class VoltaNetwork:
     API_URL = 'https://api.voltaapi.com/v1/public-sites'
@@ -146,15 +163,13 @@ class VoltaNetwork:
 
         self.tf = TimezoneFinder(in_memory=True)
 
-        self.init_data = None
-        if os.path.isfile(self.DATA_FILE):
-            with open(self.DATA_FILE) as f:
-                self.init_data = json.load(f)
+        db = firestore.Client()
+        self.conn = db.collection('meters')
 
-    def show_meter_stats(self, oem_id):
-        if oem_id in self.meters:
-            logging.info(oem_id)
-            logging.info(self.meters[oem_id].dump())
+        # self.init_data = None
+        # if os.path.isfile(self.DATA_FILE):
+        #     with open(self.DATA_FILE) as f:
+        #         self.init_data = json.load(f)
 
     def get_meter(self, oem_id):
         return self.meters.get(oem_id, None)
@@ -163,25 +178,23 @@ class VoltaNetwork:
         with urlopen(self.API_URL) as url:
             data = json.loads(url.read().decode())
             for charger in data:
-                if 'stations' in charger:
-                    for station in charger['stations']:
+                stations = charger.get('stations', None)
+                if stations is not None:
+                    for station in stations:
                         self.parse_charger(station)
                 else:
                     log_warning("'stations' array not found", charger)
 
-        with open(self.DATA_FILE, 'w') as f:
-            json.dump({oem_id:meter.serialize() for oem_id, meter in self.meters.items()}, f)
-        shutil.copy(self.DATA_FILE, self.DATA_FILE + '.bak')
-
     def parse_charger(self, station):
-        if 'meters' in station:
+        meters = station.get('meters', None)
+        if meters is not None:
             city = station.get('city', None)
             state = station.get('state', None)
             zip_code = int(station['zip_code']) if 'zip_code' in station else None
             timezone = self.find_timezone(station)
             location = Location(city, state, zip_code, timezone)
 
-            for meter in station['meters']:
+            for meter in meters:
                 name = station.get('name', None)
                 status = station.get('status', None)
                 self.parse_meter(meter, name, status, location)
@@ -204,15 +217,29 @@ class VoltaNetwork:
     def parse_meter(self, meter, name, status, location):
         oem_id = meter.get('oem_id', None)
         if oem_id is not None:
-            if oem_id not in self.meters:
+            volta_meter = self.meters.get(oem_id, None)
+            if volta_meter is None:
+                # datetime.strptime(meter['state_updated_at'], '%Y-%m-%dT%H:%M:%S.%f')
                 volta_meter = VoltaMeter(name, status, location)
-                if self.init_data is not None and oem_id in self.init_data:
-                    volta_meter.set_stats(self.init_data[oem_id])
+                # **** new firestore way (need to update set_stats for this to work)
+                # init_data = self.conn.document(oem_id).get().to_dict()
+                # if init_data is not None:
+                #     volta_meter.set_stats(init_data)
+                # **** old text file way
+                # if self.init_data is not None and oem_id in self.init_data:
+                #     volta_meter.set_stats(self.init_data[oem_id])
 
                 self.meters[oem_id] = volta_meter
 
             state = meter['state'].lower() if 'state' in meter else None
             availability = meter['availability'].lower() if 'availability' in meter else None
-            self.meters[oem_id].update(ChargingStatus(state, availability))
+
+            if volta_meter.update(ChargingStatus(state, availability)):
+                global db_cnt
+                print("would have wrote to db {} for {}".format(db_cnt, oem_id))
+                db_cnt += 1
+                # self.conn.document(oem_id).set(volta_meter.serialize())
+
+            self.meters[oem_id] = volta_meter
         else:
             log_warning("'oem_id' not found", meter)
