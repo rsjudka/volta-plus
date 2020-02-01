@@ -1,5 +1,6 @@
 from collections import namedtuple
 from datetime import datetime
+from google.api_core.datetime_helpers import DatetimeWithNanoseconds
 from google.cloud import firestore
 import json
 import logging
@@ -39,6 +40,8 @@ class VoltaMeter:
             self.start = None
 
         def serialize(self):
+            if self.start is not None:
+                self.start._nanosecond = 0
             return {
                 'start': self.start,
                 'cnt': self.cnt,
@@ -93,7 +96,7 @@ class VoltaMeter:
         if not self.is_valid(self.state, self.availability) and not self.is_idle(new_state, new_availability):
             return
 
-        utc_time = datetime.utcnow()
+        utc_time = DatetimeWithNanoseconds.utcnow()
         local_time = self.utc_to_local_time(utc_time, timezone)
 
         self.update_in_use_charging(new_state, new_availability, utc_time)

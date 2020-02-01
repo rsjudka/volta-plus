@@ -1,46 +1,45 @@
-from datetime import datetime
-import flask
-import logging
-import sys
-from threading import Thread
-import time
-
-from .models import VoltaNetwork
+from flask import Flask, request
+from google.cloud import firestore
 
 
 def create_app():
-    app = flask.Flask(__name__)
+    app = Flask(__name__)
 
-    volta_network = VoltaNetwork()
-    def update_volta_network():
-        while True:
-            try:
-                volta_network.update()
-                time.sleep(15)
-            except Exception as e:
-                logging.exception(e)
-                time.sleep(30)
-    Thread(target=update_volta_network, daemon=True).start()
+    db = firestore.Client()
+    stations_ref = db.collection('stations')
+    meters_ref = db.collection('meters')
 
     @app.route('/', methods=['GET'])
     def index():
         return "Volta API+"
 
-    @app.route('/meter/<oem_id>', methods=['GET'])
-    def get_meter(oem_id):
-        meter = volta_network.get_meter(oem_id)
-        if meter is not None:
-            return flask.jsonify(meter.serialize())
+    @app.route('/meter', methods=['GET'])
+    def get_meter():
+        meter_id = request.args.get('id', None)
+        if meter_id is not None:
+            meter = meters_ref.document(meter_id).get().to_dict()
+            if meter is not None:
+                return meter
+            else:
+                return "invalid id"
         else:
-            return "invalid oem id"
+            return "missing parameter 'id'"
 
-    @app.route('/meters/in_use', methods=['GET'])
-    def get_meters_in_use():
-        meters = dict()
-        for oem_id, meter in volta_network.meters.items():
-            if meter.current_charge_start is not None:
-                meters[oem_id] = meter.serialize()
-        
-        return meters
+    @app.route('/meters', methods=['GET'])
+    def get_meters():
+        city = request.args.get('city', None)
+        state = request.args.get('state', None)
+        if state is not None:
+            query = stations_ref.where('state', '==', state)
+            if city is not None:
+                query = query.where('city', '==', city)
+
+                stations = {station.id:station.to_dict() for station in query.stream()}
+                for station in stations:
+                    stations[station]['meters'] = [meter.get().to_dict() for meter in stations[station]['meters']]
+
+                return stations
+        else:
+            return "missing parameter 'state'"
 
     return app
