@@ -21,8 +21,8 @@ class VoltaMeter:
     idle_availabilities = {'available'}
     in_use_charging_states = {'charging', 'pluggedin'}
     in_use_charging_availabilities = {'in use', 'plugged in...'}
-    in_use_idle_states = {'chargestopped'}
-    in_use_idle_availabilities = {'in use'}
+    in_use_stopped_states = {'chargestopped'}
+    in_use_stopped_availabilities = {'in use'}
 
     class InUseStats:
         def __init__(self):
@@ -50,7 +50,7 @@ class VoltaMeter:
         self.availability = availability
 
         self.in_use_charging_stats = self.InUseStats()
-        self.in_use_idle_stats = self.InUseStats()
+        self.in_use_stopped_stats = self.InUseStats()
 
         self.weekly_usage_update = -1
         self.weekly_usage = [0] * (144 * 7)
@@ -63,17 +63,17 @@ class VoltaMeter:
         availability = collection['availability']
 
         in_use_charging_stats_start = collection['in_use_charging_stats']['start']
-        in_use_idle_stats_start = collection['in_use_idle_stats']['start']
+        in_use_stopped_stats_start = collection['in_use_stopped_stats']['start']
         if state_updated_at is not None:
             if in_use_charging_stats_start is not None:
                 in_use_charging_stats_start = in_use_charging_stats_start.replace(tzinfo=None)
                 if state_updated_at > in_use_charging_stats_start:
                     in_use_charging_stats_start, state, availability = None, None, None
 
-            if in_use_idle_stats_start is not None:
-                in_use_idle_stats_start = in_use_idle_stats_start.replace(tzinfo=None)
-                if state_updated_at > in_use_idle_stats_start:
-                    in_use_idle_stats_start, state, availability = None, None, None
+            if in_use_stopped_stats_start is not None:
+                in_use_stopped_stats_start = in_use_stopped_stats_start.replace(tzinfo=None)
+                if state_updated_at > in_use_stopped_stats_start:
+                    in_use_stopped_stats_start, state, availability = None, None, None
 
         volta_meter = cls(state, availability)
         volta_meter.stale = False
@@ -83,18 +83,21 @@ class VoltaMeter:
         volta_meter.in_use_charging_stats.cnt = collection['in_use_charging_stats']['cnt']
         volta_meter.in_use_charging_stats.avg = collection['in_use_charging_stats']['avg']
 
-        volta_meter.in_use_idle_stats.start = in_use_idle_stats_start
-        volta_meter.in_use_idle_stats.cnt = collection['in_use_idle_stats']['cnt']
-        volta_meter.in_use_idle_stats.avg = collection['in_use_idle_stats']['avg']
+        volta_meter.in_use_stopped_stats.start = in_use_stopped_stats_start
+        volta_meter.in_use_stopped_stats.cnt = collection['in_use_stopped_stats']['cnt']
+        volta_meter.in_use_stopped_stats.avg = collection['in_use_stopped_stats']['avg']
 
         return volta_meter
 
     def update(self, new_state, new_availability, timezone):
+        if not self.is_valid(self.state, self.availability) and not self.is_idle(new_state, new_availability):
+            return
+
         utc_time = datetime.utcnow()
         local_time = self.utc_to_local_time(utc_time, timezone)
 
         self.update_in_use_charging(new_state, new_availability, utc_time)
-        self.update_in_use_idle(new_state, new_availability, utc_time)
+        self.update_in_use_stopped(new_state, new_availability, utc_time)
         self.update_weekly_usage(new_state, new_availability, local_time)
 
         self.state = new_state
@@ -111,13 +114,13 @@ class VoltaMeter:
             else:
                 log_warning("in use charge start time is None when it should not be", self.serialize())
 
-    def update_in_use_idle(self, new_state, new_availability, utc_time):
-        if not self.is_in_use_idle(self.state, self.availability) and self.is_in_use_idle(new_state, new_availability):
-            self.in_use_idle_stats.start = utc_time
+    def update_in_use_stopped(self, new_state, new_availability, utc_time):
+        if not self.is_in_use_stopped(self.state, self.availability) and self.is_in_use_stopped(new_state, new_availability):
+            self.in_use_stopped_stats.start = utc_time
             self.stale = True
-        elif self.is_in_use_idle(self.state, self.availability) and not self.is_in_use_idle(new_state, new_availability):
-            if self.in_use_idle_stats.start is not None:
-                self.in_use_idle_stats.update_avg(utc_time)
+        elif self.is_in_use_stopped(self.state, self.availability) and not self.is_in_use_stopped(new_state, new_availability):
+            if self.in_use_stopped_stats.start is not None:
+                self.in_use_stopped_stats.update_avg(utc_time)
                 self.stale = True
             else:
                 log_warning("in use idle start time is None when it should not be", self.serialize())
@@ -128,17 +131,20 @@ class VoltaMeter:
             self.weekly_usage[new_weekly_usage_update] += 1
             self.weekly_usage_update = new_weekly_usage_update
 
+    def is_valid(self, state, availability):
+        return state is not None and availability is not None
+    
     def is_idle(self, state, availability):
         return state in self.idle_states and availability in self.idle_availabilities
 
     def is_in_use_charging(self, state, availability):
         return state in self.in_use_charging_states and availability in self.in_use_charging_availabilities
 
-    def is_in_use_idle(self, state, availability):
-        return state in self.in_use_idle_states and availability in self.in_use_idle_availabilities
+    def is_in_use_stopped(self, state, availability):
+        return state in self.in_use_stopped_states and availability in self.in_use_stopped_availabilities
 
     def is_in_use(self, state, availability):
-        return self.is_in_use_charging(state, availability) or self.is_in_use_idle(state, availability)
+        return self.is_in_use_charging(state, availability) or self.is_in_use_stopped(state, availability)
 
     def utc_to_local_time(self, utc_time, timezone):
         return timezone.fromutc(utc_time) if timezone is not None else utc_time
@@ -148,7 +154,7 @@ class VoltaMeter:
             'state': self.state,
             'availability': self.availability,
             'in_use_charging_stats': self.in_use_charging_stats.serialize(),
-            'in_use_idle_stats': self.in_use_idle_stats.serialize(),
+            'in_use_stopped_stats': self.in_use_stopped_stats.serialize(),
             'weekly_usage': self.weekly_usage
         }
 
