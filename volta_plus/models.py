@@ -48,9 +48,9 @@ class VoltaMeter:
                 'avg': self.avg
             }
 
-    def __init__(self, state, availability):
-        self.state = state
-        self.availability = availability
+    def __init__(self):
+        self.state = None
+        self.availability = None
 
         self.in_use_charging_stats = self.InUseStats()
         self.in_use_stopped_stats = self.InUseStats()
@@ -58,50 +58,31 @@ class VoltaMeter:
         self.weekly_usage_update = -1
         self.weekly_usage = [0] * (144 * 7)
         
-        self.stale = True
+        self.stale = False
 
     @classmethod
-    def from_collection(cls, collection, state_updated_at):
-        state = collection['state']
-        availability = collection['availability']
-
-        in_use_charging_stats_start = collection['in_use_charging_stats']['start']
-        in_use_stopped_stats_start = collection['in_use_stopped_stats']['start']
-        if state_updated_at is not None:
-            if in_use_charging_stats_start is not None:
-                in_use_charging_stats_start = in_use_charging_stats_start.replace(tzinfo=None)
-                if state_updated_at > in_use_charging_stats_start:
-                    in_use_charging_stats_start, state, availability = None, None, None
-
-            if in_use_stopped_stats_start is not None:
-                in_use_stopped_stats_start = in_use_stopped_stats_start.replace(tzinfo=None)
-                if state_updated_at > in_use_stopped_stats_start:
-                    in_use_stopped_stats_start, state, availability = None, None, None
-
-        volta_meter = cls(state, availability)
-        volta_meter.stale = False
+    def from_collection(cls, collection):
+        volta_meter = cls()
         volta_meter.weekly_usage = collection['weekly_usage']
 
-        volta_meter.in_use_charging_stats.start = in_use_charging_stats_start
         volta_meter.in_use_charging_stats.cnt = collection['in_use_charging_stats']['cnt']
         volta_meter.in_use_charging_stats.avg = collection['in_use_charging_stats']['avg']
 
-        volta_meter.in_use_stopped_stats.start = in_use_stopped_stats_start
         volta_meter.in_use_stopped_stats.cnt = collection['in_use_stopped_stats']['cnt']
         volta_meter.in_use_stopped_stats.avg = collection['in_use_stopped_stats']['avg']
 
         return volta_meter
 
     def update(self, new_state, new_availability, timezone):
-        if not self.is_valid(self.state, self.availability) and not self.is_idle(new_state, new_availability):
-            return
+        if not self.is_valid(self.state, self.availability):
+            if not self.is_idle(new_state, new_availability):
+                return
+        else:
+            utc_time = DatetimeWithNanoseconds.utcnow()
 
-        utc_time = DatetimeWithNanoseconds.utcnow()
-        local_time = self.utc_to_local_time(utc_time, timezone)
-
-        self.update_in_use_charging(new_state, new_availability, utc_time)
-        self.update_in_use_stopped(new_state, new_availability, utc_time)
-        self.update_weekly_usage(new_state, new_availability, local_time)
+            self.update_in_use_charging(new_state, new_availability, utc_time)
+            self.update_in_use_stopped(new_state, new_availability, utc_time)
+            self.update_weekly_usage(new_state, new_availability, self.utc_to_local_time(utc_time, timezone))
 
         self.state = new_state
         self.availability = new_availability
@@ -310,18 +291,15 @@ class VoltaNetwork:
             return
 
         state = meter['state'].lower() if 'state' in meter else None
-        state_updated_at = meter.get('state_updated_at', None)
-        if state_updated_at is not None:
-            state_updated_at = datetime.strptime(state_updated_at, '%Y-%m-%dT%H:%M:%S.%f')
         availability = meter['availability'].lower() if 'availability' in meter else None
 
         volta_meter = volta_station.meters.get(meter_id, None)
         if volta_meter is None:
             collection = self.meters_ref.document(meter_id).get().to_dict()
             if collection is not None:
-                volta_meter = VoltaMeter.from_collection(collection, state_updated_at)
+                volta_meter = VoltaMeter.from_collection(collection)
             else:
-                volta_meter = VoltaMeter(state, availability)
+                volta_meter = VoltaMeter()
 
             volta_station.meters[meter_id] = volta_meter
 
