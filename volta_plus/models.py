@@ -81,7 +81,9 @@ class VoltaMeter:
 
     def update(self, new_state, new_availability, timezone):
         if not self.is_valid(self.state, self.availability):
-            if not self.is_idle(new_state, new_availability):
+            if self.is_idle(new_state, new_availability):
+                self.stale = True
+            else:
                 return
         else:
             utc_time = DatetimeWithNanoseconds.utcnow()
@@ -285,7 +287,7 @@ class VoltaNetwork:
             data = json.loads(url.read().decode())
             for site in data:
                 self.parse_site(site)
-            # compare {site.id for site in sites_ref.stream()} to set(self.sites.keys())
+            # TODO compare {site.id for site in sites_ref.stream()} to set(self.sites.keys())
 
     def parse_site(self, site):
         site_id = site.get('id', None)
@@ -319,7 +321,7 @@ class VoltaNetwork:
         if stations is not None:
             for station in stations:
                 self.parse_station(volta_site, station)
-            # compare station_refs to set(volta_site.stations.keys())
+            # TODO compare station_refs to set(volta_site.stations.keys())
         else:
             log_warning("'stations' array not found", site)
 
@@ -360,7 +362,7 @@ class VoltaNetwork:
         if meters is not None:
             for meter in meters:
                 self.parse_meter(volta_station, meter)
-            # compare meter_refs to set(volta_station.meters.keys())
+            # TODO compare meter_refs to set(volta_station.meters.keys())
         else:
             log_warning("'meters' array not found", station)
 
