@@ -2,6 +2,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 from google.cloud import firestore
 
 from volta_plus.models import meters_ref, sites_ref, stations_ref
@@ -9,6 +10,7 @@ from volta_plus.models import meters_ref, sites_ref, stations_ref
 
 def create_app():
     app = Flask(__name__)
+    CORS(app)
 
     sites = defaultdict(lambda: defaultdict(list))
     for site in list(sites_ref.stream()):
