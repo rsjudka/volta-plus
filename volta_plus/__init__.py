@@ -2,6 +2,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 
 from flask import Flask, jsonify, request
+from flask_caching import Cache
 from google.cloud import firestore
 
 from volta_plus.models import meters_ref, sites_ref, stations_ref
@@ -9,18 +10,19 @@ from volta_plus.models import meters_ref, sites_ref, stations_ref
 
 def create_app():
     app = Flask(__name__)
-
-    sites = defaultdict(lambda: defaultdict(list))
-    for site in list(sites_ref.stream()):
-        data = site.to_dict()
-        sites[data['state'].lower()][data['city'].lower()].append((data['name'], [station.get().id for station in data['stations']]))
+    cache = Cache(app, config={'CACHE_TYPE': 'simple'})
 
     @app.route('/', methods=['GET'])
     def index():
         return "Volta+ API"
 
     @app.route('/sites', methods=['GET'])
+    @cache.cached(timeout=86400)
     def get_sites():
+        sites = defaultdict(lambda: defaultdict(list))
+        for site in list(sites_ref.stream()):
+            data = site.to_dict()
+            sites[data['state'].lower()][data['city'].lower()].append((data['name'], [station.get().id for station in data['stations']]))
         response = jsonify(sites)
         return response
 
