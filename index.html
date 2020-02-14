@@ -1,0 +1,295 @@
+<html>
+    <header>
+        <title>Volta+</title>
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css">
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+        <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js"></script>
+        <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.0/css/all.css">
+        <script src="https://cdn.anychart.com/releases/8.7.1/js/anychart-core.min.js"></script>
+        <script src="https://cdn.anychart.com/releases/8.7.1/js/anychart-cartesian.min.js"></script>
+        <style>
+            * {
+                font-size: 20px;
+                line-height: 200%;
+            }
+        </style>
+    </header>
+    <body>
+        <div id="meter_modal" class="modal">
+            <div class="modal-dialog modal-lg modal-dialog-centered">
+                <div class="modal-content" style="max-height: 80vh;">
+                    <div class="modal-header">
+                        <h4 id="station_name"></h4>
+                    </div>
+                    <div class="modal-body overflow-auto">
+                        <table id="meters" style="width: 100%;"></table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="container">
+            <div style="height: 10vh;">
+                <h1 style="text-align: center;">Volta+</h1>
+            </div>
+            <div class="row" style="height: 40vh;">
+                <div class="col-md-2">
+                    <select id="states" class="form-control" style="height: 100%;" size="2"
+                        onchange="updateCities(this.value)"></select>
+                </div>
+                <div class="col-md-4">
+                    <select id="cities" class="form-control" style="height: 100%;" size="2"
+                        onchange="updateStations(this.value)"></select>
+                </div>
+                <div class="col-md-6">
+                    <select id="sites" class="form-control" style="height: 100%;" size="2"
+                        onclick="showMeters(this)"></select>
+                </div>
+            </div>
+            <div class="overflow-auto" style="height: 50vh;">
+                <table id="stations"></table>
+            </div>
+        </div>
+        <script>
+            API_URL = "http://127.0.0.1:5000"
+            DAYS = ["Mon", "Tues", "Wed", "Thu", "Fri", "Sat", "Sun"];
+            CURR_DAY_OF_WEEK = (new Date().getDay() + 6) % 7;
+
+            sites = null;
+            $.getJSON(API_URL + '/sites', function(json) {
+                sites = json;
+                $.each(json, function(i, obj) {
+                    $('#states').append($('<option>').text(i.toUpperCase()).attr('value', i));
+                });
+
+            }).done(function() {
+                let params = (new URL(document.location)).searchParams;
+                defaultState = params.get('state');
+                if (defaultState != null)
+                    $('#states').val(defaultState.toLowerCase()).change();
+                defaultCity = params.get('city');
+                if (defaultCity != null)
+                    $('#cities').val(defaultCity.toLowerCase()).change();
+                defaultSite = params.get('site');
+                if (defaultSite != null)
+                    $('#sites').val(defaultSite.toLowerCase()).click();
+            });
+
+            function updateCities(state) {
+                var cities = sites[state];
+                $('#cities').empty();
+                $('#sites').empty();
+                var toTitleCase = function(str) {
+                    return str.split(' ').map((s) => s.charAt(0).toUpperCase() + s.substring(1)).join(' ');
+                };
+                for (var city in cities)
+                    $('#cities').append($('<option>').text(toTitleCase(city)).attr('value', city));
+            }
+
+            function updateStations(city) {
+                var stations = sites[$('#states').val()][city];
+                $('#sites').empty();
+                for (var station of stations)
+                    $('#sites').append($('<option>').text(station[0]).attr('value', station[0].toLowerCase()));
+            }
+
+            function showMeters(site) {
+                var stations = sites[$('#states').val()][$('#cities').val()][site.selectedIndex][1];
+
+                $('#stations').empty();
+                for (var station of stations) {
+                    $.getJSON(API_URL + '/meters/' + station['meters'].join(','), function(json) {
+                        var stationName = this['name'];
+                        var button = $('<div>', {
+                            text: stationName,
+                        });
+                        var brief = $('<tr>', {
+                            style: "cursor: pointer;",
+                        }).click(function() {
+                            showModal(stationName, json);
+                        });
+                        brief.append(button);
+                        for (var meter in json) {
+                            if (meter > 0) brief.append($('<br/>'));
+                            var status = $('<i/>', {
+                                class: 'fas fa-bolt fa-md'
+                            });
+                            if (json[meter]['availability'] == 'available')
+                                status.addClass('text-secondary');
+                            else if (json[meter]['availability'] == 'in use' || json[meter]['availability'] == 'plugged in...') {
+                                status.addClass((json[meter]['state'] == 'chargestopped' || json[meter]['charge_duration'] > 7200) ? 'text-warning' : 'text-primary');
+                                status.text(durationFmt(json[meter]['charge_duration']));
+                            } else
+                                status.addClass('text-danger');
+                            brief.append(status);
+                        }
+                        $('#stations').append(brief);
+                    }.bind(station));
+                }
+            }
+
+            function durationFmt(totalSeconds) {
+                var hours = Math.floor(totalSeconds / 3600)
+                var minutes = Math.floor(totalSeconds / 60) % 60
+                var seconds = totalSeconds % 60;
+
+                if (hours == 0 && minutes == 0) return seconds + "sec";
+
+                fmt = String();
+                if (hours > 0) fmt += hours + "hr";
+                if (minutes > 0) {
+                    if (fmt.length > 0) fmt += ' ';
+                    fmt += minutes + "min";
+                }
+
+                return fmt
+            }
+
+            function showModal(name, data) {
+                $('#station_name').text(name);
+
+                for (var meter in data) {
+                    var meterStats = $('<tr>');
+                    if (meter > 0) meterStats.append($('<hr>'));
+                    var currProgressBar = $('<div>', {
+                        class: 'progress-bar',
+                        width: ((data[meter]['charge_duration'] / 7200) * 100) + '%'
+                    });
+
+                    var showCurrCharge = false;
+                    if (data[meter]['availability'] == 'in use' || data[meter]['availability'] == 'plugged in...') {
+                        if (data[meter]['state'] == 'chargestopped') {
+                            currProgressBar.addClass('bg-warning');
+                        } else if (data[meter]['charge_duration'] > 7200) {
+                            currProgressBar.addClass('bg-warning progress-bar-striped progress-bar-animated');
+                        } else {
+                            currProgressBar.addClass('progress-bar-striped progress-bar-animated')
+                        }
+                        showCurrCharge = true;
+                    }
+
+                    if (showCurrCharge) {
+                        meterStats.append($('<h5/>', {
+                            text: 'current charge'
+                        }));
+                        var currCharge = $('<div>', {
+                            class: 'row',
+                            style: 'margin-left: 5%;'
+                        });
+                        var currProgress = $('<div>', {
+                            class: 'progress'
+                        });
+                        currProgress.append(currProgressBar);
+                        currCharge.append($('<div>', {
+                            class: 'col-md-8',
+                            style: 'padding-left: 0;'
+                        }).append(currProgress));
+                        currCharge.append($('<span/>', {
+                            class: 'col-md-4',
+                            text: durationFmt(data[meter]['charge_duration'])
+                        }));
+                        meterStats.append(currCharge);
+                    }
+
+                    meterStats.append($('<h5/>', {
+                        text: 'average charge'
+                    }));
+                    meterStats.append($('<h6/>', {
+                        text: durationFmt(data[meter]['in_use_charging_stats']['avg']),
+                        style: 'margin-left: 5%;'
+                    }));
+
+                    meterStats.append($('<h5/>', {
+                        text: "average 'plugged in not charging'"
+                    }));
+                    meterStats.append($('<h6/>', {
+                        text: durationFmt(data[meter]['in_use_stopped_stats']['avg']),
+                        style: 'margin-left: 5%;'
+                    }));
+
+                    meterStats.append($('<h5/>', {
+                        text: 'popular times'
+                    }));
+                    var popularTimes = $('<div>');
+                    popularTimes.append(weeklyPagination(meter, data[meter]['weekly_usage']));
+                    popularTimes.append($('<div>', {
+                        id: 'chart_' + meter
+                    }));
+                    meterStats.append(popularTimes);
+
+                    $('#meters').append(meterStats)
+                    $('#' + CURR_DAY_OF_WEEK + '_' + meter).click();
+                }
+                $('#meter_modal').modal('show');
+            }
+
+            function weeklyPagination(idx, data) {
+                var pagination = $('<ul>', {
+                    id: 'pagination_' + idx,
+                    class: 'pagination pagination-sm justify-content-center'
+                });
+                for (var day in DAYS) {
+                    var page = $('<li/>', {
+                        id: day + '_' + idx,
+                        class: 'page-item'
+                    }).append($('<a/>', {
+                        class: 'page-link',
+                        text: DAYS[day],
+                        href: "#"
+                    }));
+                    var chartData = [];
+                    for (var i = 0; i < 144; i += 12) {
+                        var hour = i / 6;
+                        chartData.push([((hour % 12) + 1) + ((hour > 12) ? 'pm' : 'am'), data[day].slice(i, i + 12).reduce((a, b) => a + b, 0)]);
+                    }
+                    page.click(function(idx, data) {
+                        return function() {
+                            $('#pagination_' + idx).children('li').each(function() {
+                                $(this).removeClass('active')
+                            });
+                            $(this).addClass('active');
+                            makeMeterChart(idx, data)
+                        }
+                    }(idx, chartData));
+                    pagination.append(page);
+                }
+                return pagination;
+            }
+
+            function makeMeterChart(idx, data) {
+                $('#chart_' + idx).empty();
+                var chart = anychart.column();
+                chart.tooltip(false);
+                var dataSet = anychart.data.set(data);
+                var mapping = dataSet.mapAs({
+                    x: 0,
+                    value: 1
+                });
+                chart.yAxis().enabled(false);
+                chart.xAxis().ticks().enabled(false);
+                var series = chart.column(mapping);
+                series.normal().fill('#007bff');
+                series.normal().stroke(null);
+                series.hovered().fill('#007bff');
+                series.hovered().stroke(null);
+                series.selected().fill('#007bff');
+                series.selected().stroke(null);
+
+                chart.container('chart_' + idx);
+                chart.draw();
+            }
+
+            window.onclick = function(event) {
+                if (event.target == document.getElementById("meter_modal")) {
+                    $('#meters').empty();
+                    $('#meter_modal').modal('hide')
+                }
+            }
+
+            $("#sites").keyup(function(event) {
+                if (event.keyCode === 13) {
+                    $("#sites").click();
+                }
+            });
+        </script>
+    </body>
+</html>

@@ -26,23 +26,24 @@ def create_app():
             data = site.to_dict()
             sites[data['state'].lower()][data['city'].lower()].append((data['name'], data['stations']))
 
-        response = jsonify(sites)
-        return response
+        return jsonify(sites)
 
-    @app.route('/meter/<meter_id>', methods=['GET'])
-    def get_meter(meter_id):
-        meter = meters_ref.document(meter_id).get().to_dict()
-        if meter is not None:
-            charge_duration = 0
-            charge_start_time = meter['in_use_charging_stats']['start']
-            if charge_start_time is not None:
-                charge_duration = (datetime.now(timezone.utc) - charge_start_time).seconds
-            meter['charge_duration'] = charge_duration
-            meter['weekly_usage'] = [meter['weekly_usage'][(i * 144):((i * 144) + 144)] for i in range(7)]
-
-            response = jsonify(meter)
-            return response
-        else:
-            return "invalid id"
+    @app.route('/meters/<meter_ids>', methods=['GET'])
+    def get_meter(meter_ids):
+        meters = list()
+        for meter_id in meter_ids.split(','):
+            meter = meters_ref.document(meter_id).get().to_dict()
+            if meter is not None:
+                charge_duration = 0
+                charge_start_time = meter['in_use_charging_stats']['start']
+                if charge_start_time is not None:
+                    charge_duration = (datetime.now(timezone.utc) - charge_start_time).seconds
+                meter['charge_duration'] = charge_duration
+                meter['weekly_usage'] = [meter['weekly_usage'][(i * 144):((i * 144) + 144)] for i in range(7)]
+                meters.append(meter)
+            else:
+                return "invalid id {}".format(meter_id)
+        
+        return jsonify(meters)
 
     return app
