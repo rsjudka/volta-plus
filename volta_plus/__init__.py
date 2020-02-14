@@ -25,46 +25,24 @@ def create_app():
         for site in list(sites_ref.stream()):
             data = site.to_dict()
             sites[data['state'].lower()][data['city'].lower()].append((data['name'], data['stations']))
+
         response = jsonify(sites)
         return response
 
-    @app.route('/meter', methods=['GET'])
-    def get_meter():
-        meter_id = request.args.get('meter_id', None)
-        if meter_id is not None:
-            meter = meters_ref.document(meter_id).get().to_dict()
-            if meter is not None:
-                response = jsonify(meter)
-                return response
-            else:
-                return "invalid id"
-        else:
-            return "missing parameter 'id'"
+    @app.route('/meter/<meter_id>', methods=['GET'])
+    def get_meter(meter_id):
+        meter = meters_ref.document(meter_id).get().to_dict()
+        if meter is not None:
+            charge_duration = 0
+            charge_start_time = meter['in_use_charging_stats']['start']
+            if charge_start_time is not None:
+                charge_duration = (datetime.now(timezone.utc) - charge_start_time).seconds
+            meter['charge_duration'] = charge_duration
+            meter['weekly_usage'] = [meter['weekly_usage'][(i * 144):((i * 144) + 144)] for i in range(7)]
 
-    @app.route('/meters', methods=['GET'])
-    def get_meters():
-        station_id = request.args.get('station_id', None)
-        if station_id is not None:
-            stations = stations_ref.document(station_id).get(['name', 'status', 'meters', 'timezone']).to_dict()
-            meters = [meter.get().to_dict() for meter in stations['meters']]
-
-            new_meters = list()
-            for meter in meters:
-                curr_charge = 0
-                curr_time = datetime.now(timezone.utc)
-                start_time = meter['in_use_charging_stats'].get('start')
-                if start_time is not None:
-                    curr_charge = (curr_time - start_time).seconds
-                new_meter = meter
-                new_meter['charge_duration'] = curr_charge
-                new_meter['weekly_usage'] = [meter['weekly_usage'][(i * 144):((i * 144) + 144)] for i in range(7)]
-                new_meters.append(new_meter)
-
-            stations['meters'] = new_meters
-
-            response = jsonify(stations)
+            response = jsonify(meter)
             return response
         else:
-            return "missing parameter 'station_id'"
+            return "invalid id"
 
     return app
