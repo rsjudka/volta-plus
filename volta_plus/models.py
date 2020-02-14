@@ -81,9 +81,7 @@ class VoltaMeter:
 
     def update(self, new_state, new_availability, timezone):
         if not self.is_valid(self.state, self.availability):
-            if self.is_idle(new_state, new_availability):
-                self.stale = True
-            else:
+            if not self.is_idle(new_state, new_availability):
                 return
         else:
             utc_time = DatetimeWithNanoseconds.utcnow()
@@ -92,28 +90,28 @@ class VoltaMeter:
             self.update_in_use_stopped(new_state, new_availability, utc_time)
             self.update_weekly_usage(new_state, new_availability, self.utc_to_local_time(utc_time, timezone))
 
-        self.state = new_state
-        self.availability = new_availability
+        if new_state != self.state:
+            self.state = new_state
+            self.stale = True
+        if new_availability != self.availability:
+            self.availability = new_availability
+            self.stale = True
 
     def update_in_use_charging(self, new_state, new_availability, utc_time):
         if not self.is_in_use(self.state, self.availability) and self.is_in_use(new_state, new_availability):
             self.in_use_charging_stats.start = utc_time
-            self.stale = True
         elif self.is_in_use(self.state, self.availability) and not self.is_in_use(new_state, new_availability):
             if self.in_use_charging_stats.start is not None:
                 self.in_use_charging_stats.update_avg(utc_time)
-                self.stale = True
             else:
                 log_warning("in use charge start time is None when it should not be", self.serialize())
 
     def update_in_use_stopped(self, new_state, new_availability, utc_time):
         if not self.is_in_use_stopped(self.state, self.availability) and self.is_in_use_stopped(new_state, new_availability):
             self.in_use_stopped_stats.start = utc_time
-            self.stale = True
         elif self.is_in_use_stopped(self.state, self.availability) and not self.is_in_use_stopped(new_state, new_availability):
             if self.in_use_stopped_stats.start is not None:
                 self.in_use_stopped_stats.update_avg(utc_time)
-                self.stale = True
             else:
                 log_warning("in use idle start time is None when it should not be", self.serialize())
 
@@ -215,6 +213,18 @@ class VoltaStation:
             'meters': [meters_ref.document(meter_id) for meter_id in self.meters]
         }
 
+    def poor_serialize(self):
+        return {
+            'name': self.name,
+            'status': self.status,
+            'street_address': self.street_address,
+            'city': self.city,
+            'state': self.state,
+            'zip_code': self.zip_code,
+            'timezone': self.timezone.zone,
+            'meters': [meter_id for meter_id in self.meters]
+        }
+
 class VoltaSite:
     def __init__(self, name, street_address, city, state, zip_code, timezone):
         self.name = name
@@ -274,12 +284,24 @@ class VoltaSite:
             'stations': [stations_ref.document(station_id) for station_id in self.stations]
         }
 
+    def poor_serialize(self):
+        return {
+            'name': self.name,
+            'street_address': self.street_address,
+            'city': self.city,
+            'state': self.state,
+            'zip_code': self.zip_code,
+            'timezone': self.timezone.zone,
+            'stations': [station.poor_serialize() for station in self.stations.values()]
+        }
+
 class VoltaNetwork:
     API_URL = 'https://api.voltaapi.com/v1/public-sites'
 
-    def __init__(self):
-        self.sites = dict()
+    def __init__(self, poor=False):
+        self.poor = poor
 
+        self.sites = dict()
         self.tf = TimezoneFinder(in_memory=True)
 
     def update(self):
@@ -287,7 +309,6 @@ class VoltaNetwork:
             data = json.loads(url.read().decode())
             for site in data:
                 self.parse_site(site)
-            # TODO compare {site.id for site in sites_ref.stream()} to set(self.sites.keys())
 
     def parse_site(self, site):
         site_id = site.get('id', None)
@@ -303,14 +324,14 @@ class VoltaNetwork:
         timezone = self.find_timezone(site)
 
         volta_site = self.sites.get(site_id, None)
-        station_refs = None
         if volta_site is None:
-            site_attributes = ['name', 'street_address', 'city', 'state', 'zip_code', 'timezone', 'stations']
-            collection = sites_ref.document(site_id).get(site_attributes).to_dict()
-            station_refs = {station.get().id for station in collection['stations']}
-            if collection is not None:
-                volta_site = VoltaSite.from_collection(collection)
-            else:
+            if not self.poor:
+                field_paths = ['name', 'street_address', 'city', 'state', 'zip_code', 'timezone', 'stations']
+                collection = sites_ref.document(site_id).get(field_paths).to_dict()
+                if collection is not None:
+                    volta_site = VoltaSite.from_collection(collection)
+
+            if volta_site is None:
                 volta_site = VoltaSite(name, street_address, city, state, zip_code, timezone)
 
             self.sites[site_id] = volta_site
@@ -321,12 +342,14 @@ class VoltaNetwork:
         if stations is not None:
             for station in stations:
                 self.parse_station(volta_site, station)
-            # TODO compare station_refs to set(volta_site.stations.keys())
         else:
             log_warning("'stations' array not found", site)
 
         if volta_site.stale:
-            sites_ref.document(site_id).set(volta_site.serialize())
+            if self.poor:
+                sites_ref.document(site_id).set(volta_site.poor_serialize())
+            else:
+                sites_ref.document(site_id).set(volta_site.serialize())
             volta_site.stale = False
 
     def parse_station(self, volta_site, station):
@@ -344,14 +367,14 @@ class VoltaNetwork:
         timezone = self.find_timezone(station)
 
         volta_station = volta_site.stations.get(station_id, None)
-        meter_refs = None
         if volta_station is None:
-            station_attributes = ['name', 'status', 'street_address', 'city', 'state', 'zip_code', 'timezone', 'meters']
-            collection = stations_ref.document(station_id).get(station_attributes).to_dict()
-            meter_refs = collection['meters']
-            if collection is not None:
-                volta_station = VoltaStation.from_collection(collection)
-            else:
+            if not self.poor:
+                field_paths = ['name', 'status', 'street_address', 'city', 'state', 'zip_code', 'timezone', 'meters']
+                collection = stations_ref.document(station_id).get(field_paths).to_dict()
+                if collection is not None:
+                    volta_station = VoltaStation.from_collection(collection)
+
+            if volta_station is None:
                 volta_station = VoltaStation(name, status, street_address, city, state, zip_code, timezone)
 
             volta_site.stations[station_id] = volta_station
@@ -362,12 +385,14 @@ class VoltaNetwork:
         if meters is not None:
             for meter in meters:
                 self.parse_meter(volta_station, meter)
-            # TODO compare meter_refs to set(volta_station.meters.keys())
         else:
             log_warning("'meters' array not found", station)
 
         if volta_station.stale:
-            stations_ref.document(station_id).set(volta_station.serialize())
+            if self.poor:
+                volta_site.stale = True
+            else:
+                stations_ref.document(station_id).set(volta_station.serialize())
             volta_station.stale = False
 
     def parse_meter(self, volta_station, meter):
@@ -381,8 +406,8 @@ class VoltaNetwork:
 
         volta_meter = volta_station.meters.get(meter_id, None)
         if volta_meter is None:
-            meter_attributes = ['weekly_usage', 'in_use_charging_stats', 'in_use_stopped_stats']
-            collection = meters_ref.document(meter_id).get(meter_attributes).to_dict()
+            field_paths = ['weekly_usage', 'in_use_charging_stats', 'in_use_stopped_stats']
+            collection = meters_ref.document(meter_id).get(field_paths).to_dict()
             if collection is not None:
                 volta_meter = VoltaMeter.from_collection(collection)
             else:
