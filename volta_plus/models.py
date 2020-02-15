@@ -63,8 +63,8 @@ class VoltaMeter:
 
         self.weekly_usage_update = -1
         self.weekly_usage = [0] * (144 * 7)
-        
-        self.stale = False
+
+        self.stale = True
 
     @classmethod
     def from_collection(cls, collection):
@@ -91,26 +91,32 @@ class VoltaMeter:
             self.update_weekly_usage(new_state, new_availability, self.utc_to_local_time(utc_time, timezone))
 
         if new_state != self.state:
+            logging.debug("updating meter state from {} to {}".format(self.state, new_state))
             self.state = new_state
             self.stale = True
         if new_availability != self.availability:
+            logging.debug("updating meter availability from {} to {}".format(self.availability, new_availability))
             self.availability = new_availability
             self.stale = True
 
     def update_in_use_charging(self, new_state, new_availability, utc_time):
         if not self.is_in_use(self.state, self.availability) and self.is_in_use(new_state, new_availability):
+            logging.debug("updating meter in_use_charging_stats.start")
             self.in_use_charging_stats.start = utc_time
         elif self.is_in_use(self.state, self.availability) and not self.is_in_use(new_state, new_availability):
             if self.in_use_charging_stats.start is not None:
+                logging.debug("updating meter in_use_charging_stats.avg")
                 self.in_use_charging_stats.update_avg(utc_time)
             else:
                 log_warning("in use charge start time is None when it should not be", self.serialize())
 
     def update_in_use_stopped(self, new_state, new_availability, utc_time):
         if not self.is_in_use_stopped(self.state, self.availability) and self.is_in_use_stopped(new_state, new_availability):
+            logging.debug("updating meter in_use_stopped_stats.start")
             self.in_use_stopped_stats.start = utc_time
         elif self.is_in_use_stopped(self.state, self.availability) and not self.is_in_use_stopped(new_state, new_availability):
             if self.in_use_stopped_stats.start is not None:
+                logging.debug("updating meter in_use_stopped_stats.avg")
                 self.in_use_stopped_stats.update_avg(utc_time)
             else:
                 log_warning("in use idle start time is None when it should not be", self.serialize())
@@ -118,6 +124,7 @@ class VoltaMeter:
     def update_weekly_usage(self, new_state, new_availability, local_time):
         new_weekly_usage_update = (144 * local_time.weekday()) + (((local_time.hour * 60) + local_time.minute) // 10)
         if self.is_in_use(new_state, new_availability) and new_weekly_usage_update != self.weekly_usage_update:
+            logging.debug("updating meter weekly_usage")
             self.weekly_usage[new_weekly_usage_update] += 1
             self.weekly_usage_update = new_weekly_usage_update
 
@@ -332,6 +339,7 @@ class VoltaNetwork:
                     volta_site = VoltaSite.from_collection(collection)
 
             if volta_site is None:
+                logging.info("creating new site {}".format(site_id))
                 volta_site = VoltaSite(name, street_address, city, state, zip_code, timezone)
 
             self.sites[site_id] = volta_site
@@ -346,6 +354,7 @@ class VoltaNetwork:
             log_warning("'stations' array not found", site)
 
         if volta_site.stale:
+            logging.debug("writing site {} to sites_ref".format(site_id))
             if self.poor:
                 sites_ref.document(site_id).set(volta_site.poor_serialize())
             else:
@@ -375,6 +384,7 @@ class VoltaNetwork:
                     volta_station = VoltaStation.from_collection(collection)
 
             if volta_station is None:
+                logging.info("creating new station {}".format(station_id))
                 volta_station = VoltaStation(name, status, street_address, city, state, zip_code, timezone)
 
             volta_site.stations[station_id] = volta_station
@@ -392,6 +402,7 @@ class VoltaNetwork:
             if self.poor:
                 volta_site.stale = True
             else:
+                logging.debug("writing station {} to stations_ref".format(station_id))
                 stations_ref.document(station_id).set(volta_station.serialize())
             volta_station.stale = False
 
@@ -411,12 +422,14 @@ class VoltaNetwork:
             if collection is not None:
                 volta_meter = VoltaMeter.from_collection(collection)
             else:
+                logging.info("creating new meter {}".format(meter_id))
                 volta_meter = VoltaMeter()
 
             volta_station.meters[meter_id] = volta_meter
 
         volta_meter.update(state, availability, volta_station.timezone)
         if volta_meter.stale:
+            logging.debug("writing meter {} to meters_ref".format(meter_id))
             meters_ref.document(meter_id).set(volta_meter.serialize())
             volta_meter.stale = False
 
@@ -427,7 +440,10 @@ class VoltaNetwork:
             if coordinates is not None:
                 timezone = self.tf.timezone_at(lng=coordinates[0], lat=coordinates[1])
                 if timezone is not None:
-                    return pytz.timezone(timezone)
+                    try:
+                        return pytz.timezone(timezone)
+                    except Exception as e:
+                        logging.exception(e)
                 else:
                     log_warning("timezone not found", coordinates)
             else:
