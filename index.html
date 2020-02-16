@@ -4,24 +4,24 @@
         <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css">
         <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
         <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js"></script>
-        <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.0/css/all.css">
+        <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
         <script src="https://cdn.anychart.com/releases/8.7.1/js/anychart-core.min.js"></script>
         <script src="https://cdn.anychart.com/releases/8.7.1/js/anychart-cartesian.min.js"></script>
         <style>
             * {
-                font-size: 20px;
-                line-height: 200%;
+                font-size: 23px;
+                border-radius: 0 !important;
             }
         </style>
     </header>
     <body>
         <div id="meter_modal" class="modal">
             <div class="modal-dialog modal-lg modal-dialog-centered">
-                <div class="modal-content" style="max-height: 80vh;">
+                <div class="modal-content" style="max-height: 75vh;">
                     <div class="modal-header">
                         <h4 id="station_name"></h4>
                     </div>
-                    <div class="modal-body overflow-auto">
+                    <div class="modal-body overflow-auto" style="margin: 2.5vh 0;">
                         <table id="meters" style="width: 100%;"></table>
                     </div>
                 </div>
@@ -31,21 +31,18 @@
             <div style="height: 10vh;">
                 <h1 style="text-align: center;">Volta+</h1>
             </div>
-            <div class="row" style="height: 40vh;">
-                <div class="col-md-2">
-                    <select id="states" class="form-control" style="height: 100%;" size="2"
-                        onchange="updateCities(this.value)"></select>
+            <div class="row" style="height: 45vh;">
+                <div class="col-md-2" style="height: 100%">
+                    <div id="states" class="list-group list-group-flush" style="height: 100%; overflow-y: scroll;"></div>
                 </div>
-                <div class="col-md-4">
-                    <select id="cities" class="form-control" style="height: 100%;" size="2"
-                        onchange="updateStations(this.value)"></select>
+                <div class="col-md-4" style="height: 100%">
+                    <div id="cities" class="list-group list-group-flush" style="height: 100%; overflow-y: scroll;"></div>
                 </div>
-                <div class="col-md-6">
-                    <select id="sites" class="form-control" style="height: 100%;" size="2"
-                        onclick="showMeters(this)"></select>
+                <div class="col-md-6" style="height: 100%">
+                    <div id="sites" class="list-group list-group-flush" style="height: 100%; overflow-y: scroll;"></div>
                 </div>
             </div>
-            <div class="overflow-auto" style="height: 50vh;">
+            <div class="overflow-auto" style="height: 40vh; margin: 2.5vh 0;">
                 <table id="stations"></table>
             </div>
         </div>
@@ -54,47 +51,96 @@
             DAYS = ["Mon", "Tues", "Wed", "Thu", "Fri", "Sat", "Sun"];
             CURR_DAY_OF_WEEK = (new Date().getDay() + 6) % 7;
 
-            sites = null;
             $.getJSON(API_URL + '/sites', function(json) {
-                sites = json;
                 $.each(json, function(i, obj) {
-                    $('#states').append($('<option>').text(i.toUpperCase()).attr('value', i));
+                    $('#states').append($('<button>', {
+                        text: i.toUpperCase(),
+                        class: 'list-group-item list-group-item-action',
+                        style: 'padding: 0 .5rem;'
+                    }).click(function() {
+                        $('#states').children('button').each(function() {
+                            $(this).removeClass('active')
+                        });
+                        $(this).addClass('active');
+                        updateCities(obj);
+                    }));
                 });
-
             }).done(function() {
                 let params = (new URL(document.location)).searchParams;
                 defaultState = params.get('state');
-                if (defaultState != null)
-                    $('#states').val(defaultState.toLowerCase()).change();
+                if (defaultState != null) {
+                    for (var state of $('#states').children()) {
+                        if ($(state).text().toLowerCase() == defaultState.toLowerCase()) {
+                            state.click();
+                            break;
+                        }
+                    }
+                }
                 defaultCity = params.get('city');
-                if (defaultCity != null)
-                    $('#cities').val(defaultCity.toLowerCase()).change();
+                if (defaultCity != null) {
+                    for (var city of $('#cities').children()) {
+                        if ($(city).text().toLowerCase() == defaultCity.toLowerCase()) {
+                            city.click();
+                            break;
+                        }
+                    }
+                }
                 defaultSite = params.get('site');
-                if (defaultSite != null)
-                    $('#sites').val(defaultSite.toLowerCase()).click();
+                if (defaultSite != null) {
+                    for (var city of $('#sites').children()) {
+                        if ($(site).text().toLowerCase() == defaulSite.toLowerCase()) {
+                            site.click();
+                            break;
+                        }
+                    }
+                }
             });
 
-            function updateCities(state) {
-                var cities = sites[state];
+            function updateCities(cities) {
                 $('#cities').empty();
                 $('#sites').empty();
                 var toTitleCase = function(str) {
                     return str.split(' ').map((s) => s.charAt(0).toUpperCase() + s.substring(1)).join(' ');
                 };
-                for (var city in cities)
-                    $('#cities').append($('<option>').text(toTitleCase(city)).attr('value', city));
+                $.each(cities, function(city, sites) {
+                    $('#cities').append($('<button>', {
+                        text: toTitleCase(city),
+                        class: 'list-group-item list-group-item-action',
+                        style: 'padding: 0 .5rem;'
+                    }).click(function() {
+                        $('#cities').children('button').each(function() {
+                            $(this).removeClass('active')
+                        });
+                        $(this).addClass('active');
+                        updateSites(sites);
+                    }));
+                });
+                if ($('#cities').children().length == 1)
+                    $('#cities').children()[0].click();
             }
 
-            function updateStations(city) {
-                var stations = sites[$('#states').val()][city];
+            function updateSites(sites) {
                 $('#sites').empty();
-                for (var station of stations)
-                    $('#sites').append($('<option>').text(station[0]).attr('value', station[0].toLowerCase()));
+                for (var site of sites) {
+                    $('#sites').append($('<button>', {
+                        text: site[0],
+                        class: 'list-group-item list-group-item-action',
+                        style: 'padding: 0 .5rem;'
+                    }).click(function(stations) {
+                        return function() {
+                            $('#sites').children('button').each(function() {
+                                $(this).removeClass('active')
+                            });
+                            $(this).addClass('active');
+                            updateStations(stations);
+                        };
+                    }(site[1])));
+                }
+                if ($('#sites').children().length == 1)
+                    $('#sites').children()[0].click();
             }
 
-            function showMeters(site) {
-                var stations = sites[$('#states').val()][$('#cities').val()][site.selectedIndex][1];
-
+            function updateStations(stations) {
                 $('#stations').empty();
                 for (var station of stations) {
                     $.getJSON(API_URL + '/meters/' + station['meters'].join(','), function(json) {
@@ -103,22 +149,29 @@
                             text: stationName,
                         });
                         var brief = $('<tr>', {
-                            style: "cursor: pointer;",
+                            style: "display: block; cursor: pointer; margin: .5rem;",
                         }).click(function() {
-                            showModal(stationName, json);
+                            showMeters(stationName, json);
                         });
                         brief.append(button);
-                        for (var meter in json) {
-                            if (meter > 0) brief.append($('<br/>'));
-                            var status = $('<i/>', {
-                                class: 'fas fa-bolt fa-md'
+                        for (var meter of json) {
+                            var status = $('<div>', {
+                                style: 'padding: .5rem;'
                             });
-                            if (json[meter]['availability'] == 'available')
+                            status.append($('<span/>', {
+                                class: 'material-icons',
+                                style: 'vertical-align: text-top; padding-right: .5rem',
+                                text: 'ev_station'
+                            }));
+                            if (meter['availability'] == 'available')
                                 status.addClass('text-secondary');
-                            else if (json[meter]['availability'] == 'in use' || json[meter]['availability'] == 'plugged in...') {
-                                status.addClass((json[meter]['state'] == 'chargestopped' || json[meter]['charge_duration'] > 7200) ? 'text-warning' : 'text-primary');
-                                status.text(durationFmt(json[meter]['charge_duration']));
-                            } else
+                            else if (meter['availability'] == 'in use' || meter['availability'] == 'plugged in...') {
+                                status.addClass((meter['state'] == 'chargestopped' || meter['charge_duration'] > 7200) ? 'text-warning' : 'text-primary');
+                                status.append($('<span/>', {
+                                    text: durationFmt(meter['charge_duration'])
+                                }));
+                            }
+                            else
                                 status.addClass('text-danger');
                             brief.append(status);
                         }
@@ -144,7 +197,7 @@
                 return fmt
             }
 
-            function showModal(name, data) {
+            function showMeters(name, data) {
                 $('#station_name').text(name);
 
                 for (var meter in data) {
@@ -173,7 +226,7 @@
                         }));
                         var currCharge = $('<div>', {
                             class: 'row',
-                            style: 'margin-left: 5%;'
+                            style: 'margin: 0 1rem; display: flex; align-items: center;'
                         });
                         var currProgress = $('<div>', {
                             class: 'progress'
@@ -195,21 +248,23 @@
                     }));
                     meterStats.append($('<h6/>', {
                         text: durationFmt(data[meter]['in_use_charging_stats']['avg']),
-                        style: 'margin-left: 5%;'
+                        style: 'margin: 0 1rem;'
                     }));
 
                     meterStats.append($('<h5/>', {
-                        text: "average 'plugged in not charging'"
+                        text: "average 'squat'"
                     }));
                     meterStats.append($('<h6/>', {
                         text: durationFmt(data[meter]['in_use_stopped_stats']['avg']),
-                        style: 'margin-left: 5%;'
+                        style: 'margin: 0 1rem;'
                     }));
 
                     meterStats.append($('<h5/>', {
                         text: 'popular times'
                     }));
-                    var popularTimes = $('<div>');
+                    var popularTimes = $('<div>', {
+                        style: 'margin: 0 1rem;'
+                    });
                     popularTimes.append(weeklyPagination(meter, data[meter]['weekly_usage']));
                     popularTimes.append($('<div>', {
                         id: 'chart_' + meter
@@ -284,12 +339,6 @@
                     $('#meter_modal').modal('hide')
                 }
             }
-
-            $("#sites").keyup(function(event) {
-                if (event.keyCode === 13) {
-                    $("#sites").click();
-                }
-            });
         </script>
     </body>
 </html>
