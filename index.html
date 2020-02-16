@@ -32,18 +32,18 @@
                 <h1 style="text-align: center;">Volta+</h1>
             </div>
             <div class="row" style="height: 45vh;">
-                <div class="col-md-2" style="height: 100%">
-                    <div id="states" class="list-group list-group-flush" style="height: 100%; overflow-y: scroll;"></div>
+                <div class="col-md-2" style="height: 100%;">
+                    <div id="states" class="list-group list-group-flush overflow-auto" style="height: 100%; background-color: #f8f9fa;"></div>
                 </div>
-                <div class="col-md-4" style="height: 100%">
-                    <div id="cities" class="list-group list-group-flush" style="height: 100%; overflow-y: scroll;"></div>
+                <div class="col-md-4" style="height: 100%;">
+                    <div id="cities" class="list-group list-group-flush overflow-auto" style="height: 100%; background-color: #f8f9fa;"></div>
                 </div>
-                <div class="col-md-6" style="height: 100%">
-                    <div id="sites" class="list-group list-group-flush" style="height: 100%; overflow-y: scroll;"></div>
+                <div class="col-md-6" style="height: 100%;">
+                    <div id="sites" class="list-group list-group-flush overflow-auto" style="height: 100%; background-color: #f8f9fa;"></div>
                 </div>
             </div>
-            <div class="overflow-auto" style="height: 40vh; margin: 2.5vh 0;">
-                <table id="stations"></table>
+            <div class="overflow-auto" style="height: 40vh; margin: 2.5vh 0; background-color: #f8f9fa;">
+                <div id="stations" class="list-group list-group-flush"></div>
             </div>
         </div>
         <script>
@@ -56,7 +56,7 @@
                     $('#states').append($('<button>', {
                         text: i.toUpperCase(),
                         class: 'list-group-item list-group-item-action',
-                        style: 'padding: 0 .5rem;'
+                        style: 'padding: .25em .5em; min-height: fit-content;'
                     }).click(function() {
                         $('#states').children('button').each(function() {
                             $(this).removeClass('active')
@@ -106,7 +106,7 @@
                     $('#cities').append($('<button>', {
                         text: toTitleCase(city),
                         class: 'list-group-item list-group-item-action',
-                        style: 'padding: 0 .5rem;'
+                        style: 'padding: .25em .5em; min-height: fit-content;'
                     }).click(function() {
                         $('#cities').children('button').each(function() {
                             $(this).removeClass('active')
@@ -125,7 +125,7 @@
                     $('#sites').append($('<button>', {
                         text: site[0],
                         class: 'list-group-item list-group-item-action',
-                        style: 'padding: 0 .5rem;'
+                        style: 'padding: .25em .5em; min-height: fit-content;'
                     }).click(function(stations) {
                         return function() {
                             $('#sites').children('button').each(function() {
@@ -148,19 +148,20 @@
                         var button = $('<div>', {
                             text: stationName,
                         });
-                        var brief = $('<tr>', {
-                            style: "display: block; cursor: pointer; margin: .5rem;",
+                        var brief = $('<button>', {
+                            class: 'list-group-item list-group-item-action',
+                            style: 'padding: .25em .5em; min-height: fit-content;'
                         }).click(function() {
                             showMeters(stationName, json);
                         });
                         brief.append(button);
                         for (var meter of json) {
                             var status = $('<div>', {
-                                style: 'padding: .5rem;'
+                                style: 'padding: 0 1em;'
                             });
                             status.append($('<span/>', {
                                 class: 'material-icons',
-                                style: 'vertical-align: text-top; padding-right: .5rem',
+                                style: 'vertical-align: text-top; padding-right:.25em;',
                                 text: 'ev_station'
                             }));
                             if (meter['availability'] == 'available')
@@ -226,7 +227,7 @@
                         }));
                         var currCharge = $('<div>', {
                             class: 'row',
-                            style: 'margin: 0 1rem; display: flex; align-items: center;'
+                            style: 'margin: 0 1em; display: flex; align-items: center;'
                         });
                         var currProgress = $('<div>', {
                             class: 'progress'
@@ -246,24 +247,24 @@
                     meterStats.append($('<h5/>', {
                         text: 'average charge'
                     }));
-                    meterStats.append($('<h6/>', {
+                    meterStats.append($('<div/>', {
                         text: durationFmt(data[meter]['in_use_charging_stats']['avg']),
-                        style: 'margin: 0 1rem;'
+                        style: 'margin: 0 1em;'
                     }));
 
                     meterStats.append($('<h5/>', {
                         text: "average 'squat'"
                     }));
-                    meterStats.append($('<h6/>', {
+                    meterStats.append($('<div/>', {
                         text: durationFmt(data[meter]['in_use_stopped_stats']['avg']),
-                        style: 'margin: 0 1rem;'
+                        style: 'margin: 0 1em;'
                     }));
 
                     meterStats.append($('<h5/>', {
                         text: 'popular times'
                     }));
                     var popularTimes = $('<div>', {
-                        style: 'margin: 0 1rem;'
+                        style: 'margin: 0 1em;'
                     });
                     popularTimes.append(weeklyPagination(meter, data[meter]['weekly_usage']));
                     popularTimes.append($('<div>', {
