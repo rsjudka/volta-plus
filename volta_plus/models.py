@@ -216,7 +216,7 @@ class VoltaStation:
             'city': self.city,
             'state': self.state,
             'zip_code': self.zip_code,
-            'timezone': self.timezone.zone,
+            'timezone': self.timezone.zone if self.timezone is not None else None,
             'meters': [meters_ref.document(meter_id) for meter_id in self.meters]
         }
 
@@ -228,7 +228,7 @@ class VoltaStation:
             'city': self.city,
             'state': self.state,
             'zip_code': self.zip_code,
-            'timezone': self.timezone.zone,
+            'timezone': self.timezone.zone if self.timezone is not None else None,
             'meters': [meter_id for meter_id in self.meters]
         }
 
