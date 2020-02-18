@@ -287,7 +287,7 @@ class VoltaSite:
             'city': self.city,
             'state': self.state,
             'zip_code': self.zip_code,
-            'timezone': self.timezone.zone,
+            'timezone': self.timezone.zone if self.timezone is not None else None,
             'stations': [stations_ref.document(station_id) for station_id in self.stations]
         }
 
@@ -298,7 +298,7 @@ class VoltaSite:
             'city': self.city,
             'state': self.state,
             'zip_code': self.zip_code,
-            'timezone': self.timezone.zone,
+            'timezone': self.timezone.zone if self.timezone is not None else None,
             'stations': [station.poor_serialize() for station in self.stations.values()]
         }
 

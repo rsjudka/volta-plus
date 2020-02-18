@@ -1,20 +1,16 @@
 import logging
-from logging.handlers import RotatingFileHandler
+from logging.handlers import TimedRotatingFileHandler
 import time
 
 from volta_plus.models import VoltaNetwork
 
 
-log_name = 'volta_plus.log'
 logging.basicConfig(
-    filename=log_name,
     level=logging.WARNING,
     format='[%(levelname)s][%(asctime)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[TimedRotatingFileHandler('volta_plus.log', when='midnight', backupCount=3, utc=True)]
 )
-log = logging.getLogger()
-handler = RotatingFileHandler(log_name, maxBytes=524288, backupCount=1)
-log.addHandler(handler)
 
 
 if __name__ == '__main__':
