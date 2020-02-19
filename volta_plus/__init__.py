@@ -9,10 +9,17 @@ from google.cloud import firestore
 from volta_plus.models import meters_ref, sites_ref
 
 
-def create_app():
+def create_app(poor=False):
     app = Flask(__name__)
-    cache = Cache(app, config={"CACHE_TYPE": "simple"})
+
+    if poor:
+        app.config['CACHE_TYPE'] = 'filesystem'
+        app.config['CACHE_DIR'] = '.cache'
+    else:
+        app.config['CACHE_TYPE'] = 'simple'
+
     CORS(app)
+    cache = Cache(app)
 
     @app.route('/', methods=['GET'])
     def index():
@@ -24,7 +31,17 @@ def create_app():
         sites = defaultdict(lambda: defaultdict(list))
         for site in list(sites_ref.stream()):
             data = site.to_dict()
-            sites[data['state'].lower()][data['city'].lower()].append((data['name'], data['stations']))
+            if poor:
+                stations = list()
+                for station in data['stations']:
+                    stations.append({
+                        'name': station['name'],
+                        'status': station['status'],
+                        'meters': station['meters']
+                    })
+            else:
+                stations = data['stations']
+            sites[data['state'].lower()][data['city'].lower()].append((data['name'], stations))
 
         return jsonify(sites)
 
@@ -43,7 +60,7 @@ def create_app():
                 meters.append(meter)
             else:
                 return "invalid id {}".format(meter_id)
-        
+
         return jsonify(meters)
 
     return app

@@ -10,7 +10,7 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
-app = create_app()
+app = create_app(poor=True)
 
 
 if __name__ == '__main__':

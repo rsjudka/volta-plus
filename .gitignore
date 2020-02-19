@@ -1,3 +1,4 @@
+.cache/
 .vscode/
 venv/
 __pycache__/
@@ -6,4 +7,4 @@ __pycache__/
 
 *.bak
 *.json
-*.log
+*.log*
