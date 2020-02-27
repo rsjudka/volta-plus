@@ -1,9 +1,4 @@
-.cache/
 .vscode/
-venv/
-__pycache__/
-
-*.pyc
 
 *.bak
 *.json
