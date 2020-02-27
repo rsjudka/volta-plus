@@ -1,0 +1,13 @@
+* {
+    font-size: 23px;
+    border-radius: 0 !important;
+}
+
+.list-item-button {
+    padding: .25em .5em;
+    min-height: fit-content;
+}
+
+.meter-data {
+    margin: 0 1em;
+}
