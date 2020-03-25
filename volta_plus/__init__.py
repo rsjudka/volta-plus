@@ -41,7 +41,10 @@ def create_app(poor=False):
                     })
             else:
                 stations = data['stations']
-            sites[data['state'].lower()][data['city'].lower()].append((data['name'], stations))
+
+            # ignore site if state or city is unknown
+            if data['state'] is not None and data['city'] is not None:
+                sites[data['state'].lower()][data['city'].lower()].append((data['name'], stations))
 
         return jsonify(sites)
 
